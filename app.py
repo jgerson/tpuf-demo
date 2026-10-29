@@ -2,7 +2,9 @@
 turbopuffer playground: security questionnaire assistant
 ========================================================
 
-A small hobby web app for exploring what turbopuffer can do.
+A small hobby web app for exploring what turbopuffer can do. I wanted to get
+hands-on with hybrid search, built-in embeddings and reranking, and the
+one-namespace-per-customer pattern, so this wraps them in a toy app.
 
 Tabs
   1. Start here     load the sample data, see what's in each namespace
@@ -445,7 +447,7 @@ def load_samples(meter):
         usd, b = charge_write(meter, res)
         lines.append(f"- **{label}**: {len(items)} answers written and embedded in {(time.time() - t0) * 1000:.0f} ms "
                      f"({fmt_bytes(b)}, ≈ {fmt_usd(usd)})")
-    return "\n".join(lines) + "\n\nNo cluster, index or schema migration was created first. The namespaces appeared on first write."
+    return "\n".join(lines) + "\n\nNothing had to be set up first: each namespace was created by its first write."
 
 
 # ----------------------------------------------------------------------------
@@ -606,8 +608,7 @@ def autofill(library, text, upload, meter, progress=no_progress):
     secs = time.time() - t_start
     engine = f"Claude ({CLAUDE_MODEL})" if claude else "best-match only (add ANTHROPIC_API_KEY for drafted answers)"
     summary = (f"**{len(qs)} questions in {secs:.1f} s** · {len(qs) - flagged} ready to send · **{flagged} flagged for review** · "
-               f"drafting: {engine}\n\nAt roughly 10 minutes per question by hand, that's about "
-               f"**{len(qs) * 10 / 60:.1f} hours** of manual work. Retrieval for the whole questionnaire cost about "
+               f"drafting: {engine}\n\nRetrieval for the whole questionnaire cost about "
                f"{fmt_usd(query_cost(0) * 2 * len(qs))} in turbopuffer queries.")
     return df, summary
 
@@ -781,7 +782,7 @@ def create_tenants(n, meter, progress=no_progress):
     return (f"**{len(todo)} new tenant namespaces in {secs:.1f} s** ({len(existing)} already existed, {total} total). "
             f"Each holds that customer's own answers, fully isolated.\n\n"
             f"Keeping all {total} idle tenants for a month costs about **{fmt_usd(monthly)}** in storage "
-            f"({fmt_bytes(size)} each). They cost nothing in compute until someone searches.")
+            f"({fmt_bytes(size)} each). Idle namespaces only cost storage.")
 
 
 def probe_tenant(meter):
@@ -990,7 +991,7 @@ def main():
 
     # ---------------- Many tenants
     with t5:
-        st.markdown("A SaaS product gives **every customer their own namespace**. Cursor does this for tens of millions of codebases. "
+        st.markdown("A common pattern for multi-tenant apps is **one namespace per customer** (Cursor uses one per codebase). "
                     "Create a few hundred here, then query one at random.")
         n_ten = st.slider("Tenant namespaces to create", 10, MAX_TENANTS, 200, step=10)
         if st.button("Create tenants", type="primary"):
