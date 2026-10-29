@@ -851,6 +851,11 @@ The bar at the top tracks what this session has cost in turbopuffer usage.
 ss = st.session_state  # short name: Streamlit's per-visitor memory between clicks
 
 
+def md(text):
+    """Escape dollar signs: Streamlit treats text between two $ as a math formula."""
+    return text.replace("$", "\\$")
+
+
 def password_gate():
     """If APP_PASSWORD is set, ask for it once per browser session."""
     pw = os.getenv("APP_PASSWORD")
@@ -905,7 +910,7 @@ def main():
         if c2.button("Refresh status"):
             ss["status"] = guarded(status_table)
         if ss.get("load_msg"):
-            st.markdown(ss["load_msg"])
+            st.markdown(md(ss["load_msg"]))
         if ss.get("status") is not None:
             st.dataframe(ss["status"], hide_index=True, width="stretch")
         with st.expander("Reset everything"):
@@ -949,7 +954,7 @@ def main():
                 ss["search_out"] = out
         out = ss.get("search_out")
         if out:
-            st.markdown(out["stats"])
+            st.markdown(md(out["stats"]))
             st.dataframe(out["table"], hide_index=True, width="stretch")
             if out["code"]:
                 with st.expander("Show the API call"):
@@ -972,7 +977,7 @@ def main():
                 ss["af_out"] = res
         if ss.get("af_out"):
             df, summary = ss["af_out"]
-            st.markdown(summary)
+            st.markdown(md(summary))
             st.dataframe(df, hide_index=True, width="stretch")
             st.download_button("Download drafts (CSV)", df.to_csv(index=False).encode(), "questionnaire_drafts.csv", "text/csv")
 
@@ -987,7 +992,7 @@ def main():
             if msg:
                 ss["vault_msg"] = msg
         if ss.get("vault_msg"):
-            st.markdown(ss["vault_msg"])
+            st.markdown(md(ss["vault_msg"]))
 
     # ---------------- Many tenants
     with t5:
@@ -999,7 +1004,7 @@ def main():
             if msg:
                 ss["ten_msg"] = msg
         if ss.get("ten_msg"):
-            st.markdown(ss["ten_msg"])
+            st.markdown(md(ss["ten_msg"]))
         if st.button("Query a random tenant 3 times"):
             res = guarded(probe_tenant, meter)
             if res:
@@ -1007,7 +1012,7 @@ def main():
         if ss.get("probe"):
             df, note = ss["probe"]
             st.dataframe(df, hide_index=True)
-            st.markdown(note)
+            st.markdown(md(note))
         with st.expander("Delete tenants"):
             ok_t = st.checkbox("Yes, delete all tenant namespaces")
             if st.button("Delete tenants", disabled=not ok_t):
@@ -1016,7 +1021,7 @@ def main():
                     st.success(msg)
 
     # Drawn last so it includes whatever the clicks above just cost
-    meter_box.info(meter_md(meter))
+    meter_box.info(md(meter_md(meter)))
 
 
 main()

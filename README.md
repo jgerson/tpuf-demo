@@ -4,6 +4,8 @@ A hobby project for poking at [turbopuffer](https://turbopuffer.com), the search
 
 Each fictional company keeps a library of approved answers ("Is data encrypted at rest?", "What's your RPO?") in its own namespace. The app searches those answers a few different ways and can draft answers to a whole questionnaire. All company names and answers are invented.
 
+![The app's start tab](docs/screenshot.png)
+
 ## What's inside
 
 | Tab | What it does |
@@ -41,3 +43,7 @@ APP_PASSWORD = "choose-a-password"     # recommended, since the app writes to yo
 - Cost figures are rough estimates from turbopuffer's public pricing and leave out embedding and reranking charges.
 - Built-in embedding and reranking depend on your turbopuffer plan. If reranking isn't available, search falls back to fused results.
 - Free Streamlit apps go to sleep when nobody visits; the first load after that takes about 30 seconds.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
