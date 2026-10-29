@@ -199,16 +199,18 @@ Do you carry cyber insurance, and what is the coverage limit?"""
 
 
 def library_rows(items):
+    # Each answer is stored once. "content" holds everything searchable (question,
+    # answer and control IDs) and is what turbopuffer embeds and keyword-indexes.
+    # The question is also kept as a short "title" for display; the answer text is
+    # read back out of "content" (see body_of) instead of being stored twice.
     return [
         {
             "id": i,
             "content": f"{q}\n{a}\nControls: {c}",
             "title": q,
-            "text": a,
             "category": cat,
             "controls": c,
             "reviewed": yr,
-            "url": "",
         }
         for (i, cat, c, yr, q, a) in items
     ]
@@ -311,10 +313,20 @@ def perf_line(res, client_ms, usd, billed_bytes, label=""):
     return " · ".join(bits)
 
 
+def body_of(content):
+    """The display text of a document: its content minus the title line (and the
+    trailing "Controls:" line on answer-library documents)."""
+    lines = (content or "").split("\n")[1:]
+    if lines and lines[-1].startswith("Controls: "):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
 def row_dict(r):
     d = r.to_dict() if hasattr(r, "to_dict") else dict(r)
     score = d.get("$dist", d.get("$score"))
     d["_score"] = round(float(score), 4) if isinstance(score, (int, float)) else ""
+    d["body"] = body_of(d.get("content"))
     return d
 
 
@@ -326,7 +338,7 @@ def rows_table(rows, score_name="score"):
             "#": i,
             score_name: d["_score"],
             "Title": d.get("title", ""),
-            "Text": (d.get("text") or "")[:220] + ("…" if len(d.get("text") or "") > 220 else ""),
+            "Text": d["body"][:220] + ("…" if len(d["body"]) > 220 else ""),
             "Category": d.get("category", ""),
             "Controls / source": d.get("controls") or d.get("url") or "",
         })
@@ -334,7 +346,14 @@ def rows_table(rows, score_name="score"):
     return pd.DataFrame(out, columns=cols)
 
 
-ATTRS = ["title", "text", "category", "controls", "url", "reviewed"]
+# Fields to return with search results. The two kinds of namespace store
+# slightly different fields, so each gets its own list.
+ANSWER_ATTRS = ["title", "content", "category", "controls", "reviewed"]
+DOCS_ATTRS = ["title", "content", "category", "url"]
+
+
+def attrs_for(library):
+    return ANSWER_ATTRS if library in ANSWER_LIBRARIES else DOCS_ATTRS
 
 
 def build_filters(library, category, min_year):
@@ -348,15 +367,15 @@ def build_filters(library, category, min_year):
     return f[0] if len(f) == 1 else ("And", tuple(f))
 
 
-def code_for(ns_name, mode, q, top_k, filters):
+def code_for(ns_name, mode, q, top_k, filters, attrs):
     fl = f"\n    filters={filters!r}," if filters else ""
     q_ = json.dumps(q)
     if mode.startswith("Meaning"):
         return (f'ns = tpuf.namespace("{ns_name}")\nres = ns.query(\n    rank_by=("content", "ANN", ("Embed", {q_})),\n'
-                f'    top_k={top_k},{fl}\n    include_attributes={ATTRS!r},\n)')
+                f'    top_k={top_k},{fl}\n    include_attributes={attrs!r},\n)')
     if mode.startswith("Keyword"):
         return (f'ns = tpuf.namespace("{ns_name}")\nres = ns.query(\n    rank_by=("content", "BM25", {q_}),\n'
-                f'    top_k={top_k},{fl}\n    include_attributes={ATTRS!r},\n)')
+                f'    top_k={top_k},{fl}\n    include_attributes={attrs!r},\n)')
     rr = '("RRF",)' if mode.startswith("Hybrid (fused") else (
         f'{{"model": "{RERANK_MODEL}", "attribute": "content", "query": {q_}}}')
     sub = f'"top_k": {top_k * 3}' + (f', "filters": {filters!r}' if filters else "")
@@ -365,7 +384,7 @@ def code_for(ns_name, mode, q, top_k, filters):
             f'        {{"rank_by": ("content", "BM25", {q_}), {sub}}},\n    ],\n    rerank_by={rr},\n)')
 
 
-def run_search(ns, mode, q, top_k, filters, include=ATTRS):
+def run_search(ns, mode, q, top_k, filters, include):
     """Returns (rows, response, client_ms, note)."""
     base = {"top_k": int(top_k), "include_attributes": include}
     if filters:
@@ -462,7 +481,8 @@ def do_search(library, q, mode, top_k, category, min_year, meter):
     ns_name = NS[library]
     filters = build_filters(library, category, min_year)
     try:
-        rows, res, ms, note = run_search(tpuf().namespace(ns_name), mode, q, top_k, filters)
+        attrs = attrs_for(library)
+        rows, res, ms, note = run_search(tpuf().namespace(ns_name), mode, q, top_k, filters, attrs)
     except AppError:
         raise
     except Exception as e:
@@ -476,7 +496,7 @@ def do_search(library, q, mode, top_k, category, min_year, meter):
     stats = perf_line(res, ms, usd, b) + "  \n" + next(v for k, v in explain.items() if mode.startswith(k))
     if note:
         stats = f"⚠️ {note}\n\n{stats}"
-    return {"table": rows_table(rows, score), "stats": stats, "code": code_for(ns_name, mode, q, int(top_k), filters)}
+    return {"table": rows_table(rows, score), "stats": stats, "code": code_for(ns_name, mode, q, int(top_k), filters, attrs)}
 
 
 def do_compare(library, q, top_k, category, min_year, meter):
@@ -527,7 +547,7 @@ def parse_questions(text, upload):
 
 
 def ask_claude(client, question, sources):
-    src = "\n\n".join(f"[{s['id']}] Q: {s.get('title', '')}\nA: {s.get('text', '')}\nControls: {s.get('controls', '')}" for s in sources)
+    src = "\n\n".join(f"[{s['id']}] Q: {s.get('title', '')}\nA: {s.get('body', '')}\nControls: {s.get('controls', '')}" for s in sources)
     msg = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=600,
@@ -555,8 +575,8 @@ def autofill(library, text, upload, meter, progress=no_progress):
 
     def one(i, q):
         queries = [
-            {"rank_by": by_meaning(q), "top_k": 8, "include_attributes": ["title", "text", "controls"]},
-            {"rank_by": by_keyword(q), "top_k": 8, "include_attributes": ["title", "text", "controls"]},
+            {"rank_by": by_meaning(q), "top_k": 8, "include_attributes": ["title", "content", "controls"]},
+            {"rank_by": by_keyword(q), "top_k": 8, "include_attributes": ["title", "content", "controls"]},
         ]
         try:
             res = ns.multi_query(queries=queries, rerank_by={"model": RERANK_MODEL, "attribute": "content", "query": q})
@@ -577,7 +597,7 @@ def autofill(library, text, upload, meter, progress=no_progress):
         else:
             # No LLM: reuse the best approved answer; confidence from vector distance (a rough heuristic)
             conf = "high" if best_dist < 0.30 else "medium" if best_dist < 0.45 else "low"
-            data = {"answer": top[0]["text"] if top else "", "source_ids": [top[0]["id"]] if top else [],
+            data = {"answer": top[0]["body"] if top else "", "source_ids": [top[0]["id"]] if top else [],
                     "confidence": conf, "gap": "" if conf == "high" else "Closest approved answer may not fully match"}
         with lock:
             meter["claude_tokens"] += tokens
@@ -696,8 +716,8 @@ def chunk_page(path, raw, max_chars=1600):
         if len(text) < 80:
             continue
         name = f"{title} › {heading}" if heading and heading.lower() != title.lower() else (title or rel)
-        out.append({"title": name, "text": text, "category": section, "url": url,
-                    "content": f"{name}\n{text}", "controls": "", "reviewed": 0})
+        # One copy of the text, inside "content" (title line + passage)
+        out.append({"title": name, "content": f"{name}\n{text}", "category": section, "url": url})
     return out
 
 
@@ -736,7 +756,7 @@ def load_vault(n_pages, meter, progress=no_progress):
         written += len(chunks[s:s + batch])
         progress(0.4 + 0.6 * written / len(chunks), f"Embedded and wrote {written:,} of {len(chunks):,} passages")
     t_w = time.time() - t1
-    chars = sum(len(ch["text"]) for ch in chunks)
+    chars = sum(len(ch["content"]) for ch in chunks)
     return (f"**Loaded {pages} pages → {len(chunks):,} passages** ({chars / 1e6:.1f} MB of text) from HashiCorp's public "
             f"Vault {VAULT_VERSION} docs.\n\n- Download and chunking: {t_dl:.1f} s\n- Embedding and writing to turbopuffer: {t_w:.1f} s "
             f"in {-(-len(chunks) // batch)} batches\n\nNow try the **Search** tab with *HashiCorp Vault docs* selected.")
